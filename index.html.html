@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Factorize Slayer: Dual Core</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- MathJax Configuration -->
+    <script>
+        window.MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+            svg: { fontCache: 'global' },
+            startup: {
+                typeset: false 
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <!-- Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "react": "https://esm.sh/react@18",
+                "react-dom/client": "https://esm.sh/react-dom@18/client"
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #050505;
+            color: #0ff;
+            overflow-y: auto; /* Allow scrolling */
+            user-select: none;
+            min-height: 100vh;
+        }
+        
+        /* Scanline Effect */
+        .scanline {
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.1) 50%,
+                rgba(0,0,0,0.1)
+            );
+            background-size: 100% 4px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        /* CRT Flicker */
+        .crt-overlay {
+            background: radial-gradient(circle, rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.2) 100%);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            z-index: 40;
+            animation: flicker 0.15s infinite;
+        }
+
+        @keyframes flicker {
+            0% { opacity: 0.95; }
+            50% { opacity: 1; }
+            100% { opacity: 0.96; }
+        }
+
+        .neon-text {
+            text-shadow: 0 0 5px #0ff, 0 0 10px #0ff;
+        }
+        
+        .neon-pink {
+            color: #f0f;
+            text-shadow: 0 0 5px #f0f, 0 0 10px #f0f;
+        }
+
+        .pixelated {
+            image-rendering: pixelated;
+        }
+
+        /* Custom Scrollbar for input if needed */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+
+        // --- ICONS (Inline SVGs to avoid dependency issues) ---
+        const Heart = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+            </svg>
+        );
+
+        const Trophy = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+                <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+                <path d="M4 22h16" />
+                <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+                <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
+                <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+            </svg>
+        );
+
+        const Skull = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="9" cy="12" r="1" />
+                <circle cx="15" cy="12" r="1" />
+                <path d="M8 20v2h8v-2" />
+                <path d="m12.5 17-.5-1-.5 1h1z" />
+                <path d="M16 20a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20" />
+            </svg>
+        );
+
+        const Zap = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+        );
+
+        // --- CONSTANTS & ASSETS ---
+        const ASSETS = {
+            NORMAL: "https://cdn.jsdelivr.net/gh/kinoshitatomofumi62/my-assets@main/aaf0.png",
+            HIT: "https://cdn.jsdelivr.net/gh/kinoshitatomofumi62/my-assets@main/aaf1.png",
+            ATTACK: "https://cdn.jsdelivr.net/gh/kinoshitatomofumi62/my-assets@main/aaf2.png",
+            DEFEAT: "https://cdn.jsdelivr.net/gh/kinoshitatomofumi62/my-assets@main/aaf3.png",
+            WIN_MISS: "https://cdn.jsdelivr.net/gh/kinoshitatomofumi62/my-assets@main/aaf4.png",
+            WIN_PERFECT: "https://cdn.jsdelivr.net/gh/kinoshitatomofumi62/my-assets@main/aaf5.png"
+        };
+
+        const GAME_STATE = {
+            MENU: 'MENU',
+            PLAYING: 'PLAYING',
+            GAME_OVER: 'GAME_OVER',
+            VICTORY: 'VICTORY'
+        };
+
+        const MONSTER_STATE = {
+            NORMAL: 'NORMAL',
+            HIT: 'HIT',
+            ATTACK: 'ATTACK',
+            DEFEAT: 'DEFEAT'
+        };
+
+        // --- UTILS ---
+        const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+        const randomSign = () => Math.random() < 0.5 ? 1 : -1;
+
+        // --- MATH LOGIC ---
+        const generateQuestion = (stage, count) => {
+            let a, b, c, d;
+            
+            // Helper to format (ax+b)
+            const formatFactor = (coeff, constVal) => {
+                let s = "";
+                if (coeff === 1) s += "x";
+                else if (coeff === -1) s += "-x";
+                else s += `${coeff}x`;
+
+                if (constVal > 0) s += `+${constVal}`;
+                else if (constVal < 0) s += `${constVal}`; 
+                return s;
+            };
+
+            // Helper to expand (ax+b)(cx+d) -> acx^2 + (ad+bc)x + bd
+            const expand = (a, b, c, d) => {
+                const A = a * c;
+                const B = a * d + b * c;
+                const C = b * d;
+                
+                let poly = "";
+                // x^2 term
+                if (A === 1) poly += "x^2";
+                else if (A === -1) poly += "-x^2";
+                else poly += `${A}x^2`;
+
+                // x term
+                if (B === 1) poly += "+x";
+                else if (B === -1) poly += "-x";
+                else if (B > 0) poly += `+${B}x`;
+                else if (B < 0) poly += `${B}x`;
+                // if B is 0, omit
+
+                // constant term
+                if (C > 0) poly += `+${C}`;
+                else if (C < 0) poly += `${C}`;
+                
+                return poly;
+            };
+
+            if (stage === 1) {
+                // Foundation Stage (Merges old Stages 1-4)
+                // Force Large Numbers on 5th question (index 4)
+                if (count === 4) {
+                    a = 1; c = 1;
+                    b = randomInt(10, 15) * randomSign();
+                    d = randomInt(2, 15) * randomSign();
+                } else {
+                    const type = Math.random();
+                    
+                    if (type < 0.25) { 
+                        // Basic (Positive)
+                        a = 1; c = 1;
+                        b = randomInt(1, 9);
+                        d = randomInt(1, 9);
+                    } else if (type < 0.75) { 
+                        // Mixed Signs (High weight)
+                        a = 1; c = 1;
+                        const r = Math.random();
+                        if (r < 0.33) { b = -randomInt(1, 9); d = randomInt(1, 9); }
+                        else if (r < 0.66) { b = randomInt(1, 9); d = -randomInt(1, 9); }
+                        else { b = -randomInt(1, 9); d = -randomInt(1, 9); }
+                    } else {
+                        // Special Products
+                        a = 1; c = 1;
+                        const val = randomInt(1, 9);
+                        if (Math.random() < 0.5) {
+                            b = Math.random() < 0.5 ? val : -val;
+                            d = b;
+                        } else {
+                            b = val;
+                            d = -val;
+                        }
+                    }
+                }
+            } else {
+                // Advanced Stage (Cross Method)
+                const primes = [2, 3, 5];
+                a = primes[randomInt(0, primes.length - 1)];
+                c = primes[randomInt(0, primes.length - 1)];
+                
+                // Ensure b is not a multiple of a (avoid common factor)
+                do {
+                    b = randomInt(1, 5) * randomSign();
+                } while (b % a === 0);
+
+                // Ensure d is not a multiple of c (avoid common factor)
+                do {
+                    d = randomInt(1, 5) * randomSign();
+                } while (d % c === 0);
+            }
+
+            const latex = expand(a, b, c, d);
+            const ans1 = formatFactor(a, b);
+            const ans2 = formatFactor(c, d);
+            
+            return {
+                latex: latex,
+                answers: [ans1, ans2]
+            };
+        };
+
+        // --- COMPONENTS ---
+
+        const MathRenderer = ({ latex, className }) => {
+            const nodeRef = useRef(null);
+            const defaultClass = "text-xl md:text-2xl lg:text-3xl neon-text py-4 tracking-wider min-h-[60px]";
+
+            useEffect(() => {
+                if (window.MathJax && nodeRef.current) {
+                    nodeRef.current.innerHTML = `$${latex}$`;
+                    window.MathJax.typesetPromise([nodeRef.current])
+                        .catch(err => console.error('MathJax error:', err));
+                }
+            }, [latex]);
+
+            return <div ref={nodeRef} className={className || defaultClass} />;
+        };
+
+        const Keypad = ({ onInput, onDelete, onEnter }) => {
+            const keys = [
+                '7', '8', '9',
+                '4', '5', '6',
+                '1', '2', '3',
+                '-', '0', '+',
+                'DEL', 'OK'
+            ];
+
+            return (
+                <div className="grid grid-cols-3 gap-0.5 w-[60%] max-w-[200px] mx-auto mt-1 select-none">
+                    {keys.map(k => (
+                        <button
+                            key={k}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                if (k === 'DEL') onDelete();
+                                else if (k === 'OK') onEnter();
+                                else onInput(k);
+                            }}
+                            className={`
+                                h-7 rounded border-b-2 font-bold text-xs active:border-b-0 active:translate-y-0.5 transition-all
+                                ${k === 'OK' ? 'bg-cyan-900 border-cyan-700 text-cyan-100 col-span-2 shadow-[0_0_5px_rgba(8,145,178,0.5)]' : ''}
+                                ${k === 'DEL' ? 'bg-red-900 border-red-700 text-red-100' : ''}
+                                ${!['OK', 'DEL'].includes(k) ? 'bg-gray-800 border-gray-600 text-gray-200 hover:bg-gray-700' : ''}
+                            `}
+                        >
+                            {k}
+                        </button>
+                    ))}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [gameState, setGameState] = useState(GAME_STATE.MENU);
+            const [stage, setStage] = useState(1);
+            const [questionCount, setQuestionCount] = useState(0);
+            const [hp, setHp] = useState(3);
+            const [currentQuestion, setCurrentQuestion] = useState(null);
+            // inputs: [coeff1, const1, coeff2, const2] -> (coeff1 x + const1)(coeff2 x + const2)
+            const [inputs, setInputs] = useState(['', '', '', '']); 
+            const [activeInputIndex, setActiveInputIndex] = useState(1);
+            const [timeLeft, setTimeLeft] = useState(30);
+            const [monsterState, setMonsterState] = useState(MONSTER_STATE.NORMAL);
+            const [isPerfect, setIsPerfect] = useState(true);
+            const [flash, setFlash] = useState(false);
+            const [mistakes, setMistakes] = useState([]);
+            const [feedback, setFeedback] = useState(null); // { type: 'CORRECT' | 'WRONG', text: string }
+            const [score, setScore] = useState(0);
+            const [combo, setCombo] = useState(0);
+
+            // Timer Logic
+            useEffect(() => {
+                let timer;
+                if (gameState === GAME_STATE.PLAYING && timeLeft > 0 && monsterState !== MONSTER_STATE.HIT) {
+                    timer = setInterval(() => {
+                        setTimeLeft(prev => prev - 1);
+                    }, 1000);
+                } else if (timeLeft === 0 && gameState === GAME_STATE.PLAYING) {
+                    handleDamage('TIMEOUT');
+                }
+                return () => clearInterval(timer);
+            }, [timeLeft, gameState, monsterState]);
+
+            const startGame = () => {
+                setGameState(GAME_STATE.PLAYING);
+                setStage(1);
+                setQuestionCount(0);
+                setHp(3);
+                setIsPerfect(true);
+                setMistakes([]);
+                setScore(0);
+                setCombo(0);
+                nextQuestion(1, 0);
+            };
+
+            const nextQuestion = (currentStage, currentCount) => {
+                const q = generateQuestion(currentStage, currentCount);
+                setCurrentQuestion(q);
+                // Reset inputs: coefficients default to empty (implies 1)
+                setInputs(['', '', '', '']);
+                // Focus on first constant term (index 1)
+                setActiveInputIndex(1);
+                // Stage 2 or Stage 1 Q5 (index 4) gets 60s
+                setTimeLeft((currentStage === 2 || (currentStage === 1 && currentCount === 4)) ? 60 : 30);
+                setMonsterState(MONSTER_STATE.NORMAL);
+            };
+
+            // Helper to format (ax+b) for display/checking
+            const formatPoly = (coeff, constant) => {
+                let c = coeff ? coeff.replace(/\s/g, '') : '';
+                // Treat empty coefficient as '1' (x)
+                if (c === '') c = '1';
+
+                let k = constant ? constant.replace(/\s/g, '') : '';
+                
+                // Handle coefficient
+                if (c === '1') c = 'x';
+                else if (c === '-1') c = '-x';
+                else if (c !== '') c = c + 'x';
+                
+                // Handle constant (ensure sign)
+                if (k && !k.startsWith('+') && !k.startsWith('-')) {
+                    k = '+' + k;
+                }
+                
+                return c + k;
+            };
+
+            const handleDamage = (reason = 'WRONG') => {
+                if (currentQuestion) {
+                    setMistakes(prev => [...prev, { 
+                        latex: currentQuestion.latex,
+                        ans: currentQuestion.answers,
+                        userAns: [...inputs],
+                        reason: reason
+                    }]);
+                }
+
+                setCombo(0);
+                setFeedback({ type: 'WRONG', text: reason === 'TIMEOUT' ? 'TIME UP!' : 'MISS!' });
+                setTimeout(() => setFeedback(null), 800);
+
+                setHp(prev => {
+                    const newHp = prev - 1;
+                    setFlash(true);
+                    setTimeout(() => setFlash(false), 200);
+                    
+                    if (newHp <= 0) {
+                        setGameState(GAME_STATE.GAME_OVER);
+                        setMonsterState(MONSTER_STATE.ATTACK);
+                    } else {
+                        setIsPerfect(false);
+                        setMonsterState(MONSTER_STATE.ATTACK);
+                        setTimeout(() => {
+                            nextQuestion(stage, questionCount);
+                        }, 1000);
+                    }
+                    return newHp;
+                });
+            };
+
+            const checkAnswer = () => {
+                if (!currentQuestion || gameState !== GAME_STATE.PLAYING) return;
+                
+                const userAns1 = formatPoly(inputs[0], inputs[1]);
+                const userAns2 = formatPoly(inputs[2], inputs[3]);
+                const correctAns = currentQuestion.answers;
+
+                // Normalize for comparison (remove spaces, handle +-)
+                const normalize = (str) => str.replace(/\s/g, '').replace(/\+\-/g, '-');
+                
+                const u1 = normalize(userAns1);
+                const u2 = normalize(userAns2);
+                const c1 = normalize(correctAns[0]);
+                const c2 = normalize(correctAns[1]);
+
+                // Check permutations
+                const isCorrect = 
+                    (u1 === c1 && u2 === c2) ||
+                    (u1 === c2 && u2 === c1);
+
+                if (isCorrect) {
+                    handleCorrect();
+                } else {
+                    handleDamage('WRONG');
+                }
+            };
+
+            const handleCorrect = () => {
+                setMonsterState(MONSTER_STATE.HIT);
+                
+                // Calculate Score
+                const baseScore = 500;
+                const timeBonus = timeLeft * 50;
+                const comboMultiplier = 1 + (combo * 0.2);
+                const points = Math.floor((baseScore + timeBonus) * comboMultiplier);
+                
+                setScore(prev => prev + points);
+                setCombo(prev => prev + 1);
+
+                setFeedback({ type: 'CORRECT', text: `+${points}` });
+                setTimeout(() => setFeedback(null), 800);
+                
+                setTimeout(() => {
+                    let nextCount = questionCount + 1;
+                    let nextStage = stage;
+                    
+                    // Stage 1: 5 questions, Stage 2: 5 questions
+                    let threshold = 5;
+
+                    if (nextCount >= threshold) {
+                        nextStage = stage + 1;
+                        nextCount = 0;
+                    }
+
+                    if (nextStage > 2) {
+                        setGameState(GAME_STATE.VICTORY);
+                        setMonsterState(MONSTER_STATE.DEFEAT);
+                    } else {
+                        setStage(nextStage);
+                        setQuestionCount(nextCount);
+                        nextQuestion(nextStage, nextCount);
+                    }
+                }, 1000);
+            };
+
+            const handleInput = (char) => {
+                if (gameState !== GAME_STATE.PLAYING) return;
+                
+                setInputs(prev => {
+                    const newInputs = [...prev];
+                    let currentVal = newInputs[activeInputIndex];
+                    
+                    // Logic for Constant Terms (index 1, 3)
+                    if (activeInputIndex === 1 || activeInputIndex === 3) {
+                        // If input is a number and field is empty, auto-add '+'
+                        if (/[0-9]/.test(char) && currentVal === '') {
+                            currentVal = '+' + char;
+                        }
+                        // If input is sign, replace or start with it
+                        else if (['+', '-'].includes(char)) {
+                            if (currentVal === '' || currentVal === '+' || currentVal === '-') {
+                                currentVal = char;
+                            } else {
+                                // If we have a number, don't allow adding sign in middle unless it's to replace the sign? 
+                                // Actually, simpler to just append if valid, but here we want simple input.
+                                // Let's just append.
+                                // Wait, standard calculator behavior:
+                                // If I type '3', it becomes '+3'. If I then type '-', it should probably be invalid or ignored?
+                                // Let's stick to simple append, but prevent multiple signs.
+                                return prev; // Ignore sign if already has content
+                            }
+                        }
+                        else {
+                            if (currentVal.length < 5) currentVal += char;
+                        }
+                    } 
+                    // Logic for Coefficient Terms (index 0, 2) - Stage 2 only
+                    else {
+                        if (/[0-9]/.test(char)) {
+                            if (currentVal.length < 3) currentVal += char;
+                        }
+                    }
+                    
+                    newInputs[activeInputIndex] = currentVal;
+                    return newInputs;
+                });
+            };
+
+            const handleDelete = () => {
+                setInputs(prev => {
+                    const newInputs = [...prev];
+                    if (newInputs[activeInputIndex].length > 0) {
+                        newInputs[activeInputIndex] = newInputs[activeInputIndex].slice(0, -1);
+                    }
+                    return newInputs;
+                });
+            };
+
+            // Keyboard Support
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (gameState !== GAME_STATE.PLAYING) return;
+
+                    const key = e.key;
+                    
+                    if (/^[0-9+\-]$/.test(key)) {
+                        handleInput(key);
+                    } else if (key === 'Backspace' || key === 'Delete') {
+                        handleDelete();
+                    } else if (key === 'Enter') {
+                        checkAnswer();
+                    } else if (key === 'ArrowRight' || key === 'Tab') {
+                        e.preventDefault();
+                        // Cycle logic depends on stage
+                        let nextIndex = activeInputIndex + 1;
+                        if (stage < 2) {
+                            // Skip coefficients (0, 2)
+                            if (activeInputIndex === 1) nextIndex = 3;
+                            else if (activeInputIndex === 3) nextIndex = 1;
+                        } else {
+                            if (nextIndex > 3) nextIndex = 0;
+                        }
+                        setActiveInputIndex(nextIndex);
+                    } else if (key === 'ArrowLeft') {
+                        e.preventDefault();
+                        let prevIndex = activeInputIndex - 1;
+                        if (stage < 2) {
+                            if (activeInputIndex === 3) prevIndex = 1;
+                            else if (activeInputIndex === 1) prevIndex = 3;
+                        } else {
+                            if (prevIndex < 0) prevIndex = 3;
+                        }
+                        setActiveInputIndex(prevIndex);
+                    }
+                };
+
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [gameState, activeInputIndex, handleInput, handleDelete, checkAnswer, stage]);
+
+            const getMonsterImage = () => {
+                if (gameState === GAME_STATE.VICTORY) {
+                    return isPerfect ? ASSETS.WIN_PERFECT : ASSETS.WIN_MISS;
+                }
+                if (gameState === GAME_STATE.GAME_OVER) {
+                    return ASSETS.DEFEAT;
+                }
+                switch (monsterState) {
+                    case MONSTER_STATE.HIT: return ASSETS.HIT;
+                    case MONSTER_STATE.ATTACK: return ASSETS.ATTACK;
+                    case MONSTER_STATE.DEFEAT: return ASSETS.DEFEAT;
+                    default: return ASSETS.NORMAL;
+                }
+            };
+
+            return (
+                <div className={`min-h-screen w-full flex flex-col items-center justify-center relative transition-colors duration-100 ${flash ? 'bg-red-900' : ''}`}>
+                    <div className="scanline"></div>
+                    <div className="crt-overlay"></div>
+                    
+                    {/* Feedback Overlay */}
+                    {feedback && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none">
+                            <h2 className={`text-6xl font-bold animate-bounce drop-shadow-[0_0_10px_rgba(0,0,0,1)] ${
+                                feedback.type === 'CORRECT' ? 'text-yellow-400 neon-text' : 'text-red-600 neon-pink'
+                            }`}>
+                                {feedback.text}
+                            </h2>
+                        </div>
+                    )}
+                    
+                    {/* Main Container */}
+                    <div className="relative z-10 w-full max-w-md px-4 flex flex-col items-center min-h-screen py-4 justify-between">
+                        
+                        {/* HUD */}
+                        {gameState === GAME_STATE.PLAYING && (
+                            <div className="w-full flex justify-between items-start mb-2 text-xs md:text-sm neon-text font-bold">
+                                <div className="flex flex-col w-1/3">
+                                    <span>STAGE {stage}</span>
+                                    <span className="text-[10px] text-gray-400">Q {questionCount + 1}/5</span>
+                                </div>
+                                
+                                <div className="flex flex-col items-center w-1/3">
+                                    <span className="text-yellow-400 text-lg md:text-xl tracking-widest">{score}</span>
+                                    {combo > 1 && <span className="text-[10px] text-cyan-300 animate-pulse">{combo} COMBO!</span>}
+                                </div>
+
+                                <div className="flex flex-col items-end w-1/3">
+                                    <div className="flex gap-1 mb-1">
+                                        {Array.from({length: 3}).map((_, i) => (
+                                            <Heart key={i} className={`w-5 h-5 ${i < hp ? 'fill-red-500 text-red-500 drop-shadow-[0_0_5px_rgba(239,68,68,0.8)]' : 'text-gray-800'}`} />
+                                        ))}
+                                    </div>
+                                    <div className={`${timeLeft <= 10 ? 'text-red-500 animate-pulse' : 'text-cyan-400'}`}>
+                                        {timeLeft}s
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Monster Display */}
+                        <div className="flex-1 flex items-center justify-center w-full mb-2 min-h-[120px] md:min-h-[200px]">
+                            <div className="relative w-40 h-40 md:w-64 md:h-64 flex items-center justify-center">
+                                <img 
+                                    src={getMonsterImage()} 
+                                    alt="Monster" 
+                                    className={`
+                                        w-full h-full object-contain pixelated transition-all duration-150
+                                        ${monsterState === MONSTER_STATE.HIT ? 'opacity-60 scale-90 brightness-200' : ''}
+                                        ${monsterState === MONSTER_STATE.ATTACK ? 'scale-110 translate-y-4' : ''}
+                                    `}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Game Screens */}
+                        {gameState === GAME_STATE.MENU && (
+                            <div className="text-center space-y-8 mb-12">
+                                <h1 className="text-2xl md:text-4xl neon-text leading-loose tracking-tighter">
+                                    FACTORIZE<br/>
+                                    <span className="text-4xl md:text-5xl text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]">SLAYER</span><br/>
+                                    <span className="text-sm neon-pink tracking-widest mt-2 block">DUAL CORE</span>
+                                </h1>
+                                <button 
+                                    onClick={startGame}
+                                    className="px-8 py-4 border-4 border-cyan-500 text-cyan-400 hover:bg-cyan-900 hover:text-white transition-all animate-pulse text-lg"
+                                >
+                                    START GAME
+                                </button>
+                            </div>
+                        )}
+
+                        {gameState === GAME_STATE.PLAYING && currentQuestion && (
+                            <div className="w-full flex flex-col items-center">
+                                {/* Question Box */}
+                                <div className="bg-gray-900/90 border-2 border-cyan-500/50 p-2 rounded-lg w-full text-center mb-2 shadow-[0_0_15px_rgba(8,145,178,0.2)]">
+                                    <MathRenderer latex={currentQuestion.latex} />
+                                </div>
+
+                                {/* Input Fields */}
+                                <div className="flex flex-row items-center justify-center gap-1 w-full mb-2 font-mono text-base md:text-xl">
+                                    {/* First Factor (ax + b) */}
+                                    <div className="flex items-center justify-center bg-gray-900/50 rounded px-1 py-2 border border-gray-700">
+                                        <span className="text-gray-500 text-xl md:text-2xl">(</span>
+                                        
+                                        {/* Coefficient 1 (index 0) - Only for Stage 2 */}
+                                        {stage === 2 && (
+                                            <div 
+                                                onClick={() => setActiveInputIndex(0)}
+                                                className={`
+                                                    w-10 h-12 border-b-4 flex items-center justify-center cursor-pointer text-white tracking-widest mx-0.5
+                                                    ${activeInputIndex === 0 ? 'border-cyan-400 bg-cyan-900/30' : 'border-gray-700 bg-gray-900/50'}
+                                                `}
+                                            >
+                                                {inputs[0]}
+                                                {activeInputIndex === 0 && <span className="animate-pulse text-cyan-400">_</span>}
+                                            </div>
+                                        )}
+
+                                        <span className="text-white text-xl md:text-2xl mx-0.5">x</span>
+
+                                        {/* Constant 1 (index 1) */}
+                                        <div 
+                                            onClick={() => setActiveInputIndex(1)}
+                                            className={`
+                                                w-16 h-12 border-b-4 flex items-center justify-center cursor-pointer text-white tracking-widest mx-0.5
+                                                ${activeInputIndex === 1 ? 'border-cyan-400 bg-cyan-900/30' : 'border-gray-700 bg-gray-900/50'}
+                                            `}
+                                        >
+                                            {inputs[1]}
+                                            {activeInputIndex === 1 && <span className="animate-pulse text-cyan-400">_</span>}
+                                        </div>
+
+                                        <span className="text-gray-500 text-xl md:text-2xl">)</span>
+                                    </div>
+
+                                    {/* Second Factor (cx + d) */}
+                                    <div className="flex items-center justify-center bg-gray-900/50 rounded px-1 py-2 border border-gray-700">
+                                        <span className="text-gray-500 text-xl md:text-2xl">(</span>
+                                        
+                                        {/* Coefficient 2 (index 2) - Only for Stage 2 */}
+                                        {stage === 2 && (
+                                            <div 
+                                                onClick={() => setActiveInputIndex(2)}
+                                                className={`
+                                                    w-10 h-12 border-b-4 flex items-center justify-center cursor-pointer text-white tracking-widest mx-0.5
+                                                    ${activeInputIndex === 2 ? 'border-cyan-400 bg-cyan-900/30' : 'border-gray-700 bg-gray-900/50'}
+                                                `}
+                                            >
+                                                {inputs[2]}
+                                                {activeInputIndex === 2 && <span className="animate-pulse text-cyan-400">_</span>}
+                                            </div>
+                                        )}
+
+                                        <span className="text-white text-xl md:text-2xl mx-0.5">x</span>
+
+                                        {/* Constant 2 (index 3) */}
+                                        <div 
+                                            onClick={() => setActiveInputIndex(3)}
+                                            className={`
+                                                w-16 h-12 border-b-4 flex items-center justify-center cursor-pointer text-white tracking-widest mx-0.5
+                                                ${activeInputIndex === 3 ? 'border-cyan-400 bg-cyan-900/30' : 'border-gray-700 bg-gray-900/50'}
+                                            `}
+                                        >
+                                            {inputs[3]}
+                                            {activeInputIndex === 3 && <span className="animate-pulse text-cyan-400">_</span>}
+                                        </div>
+
+                                        <span className="text-gray-500 text-xl md:text-2xl">)</span>
+                                    </div>
+                                </div>
+
+                                <Keypad 
+                                    onInput={handleInput} 
+                                    onDelete={handleDelete} 
+                                    onEnter={checkAnswer} 
+                                />
+                            </div>
+                        )}
+
+                        {gameState === GAME_STATE.GAME_OVER && (
+                            <div className="text-center space-y-6 mb-12 bg-black/80 p-8 rounded border border-red-900">
+                                <h2 className="text-3xl text-red-600 font-bold animate-pulse">GAME OVER</h2>
+                                <Skull className="w-20 h-20 mx-auto text-red-500" />
+                                <div className="text-gray-400 text-sm">
+                                    <p className="text-xl text-yellow-400 mb-2">SCORE: {score}</p>
+                                    <p>DIED AT STAGE {stage}</p>
+                                    <p className="mt-2 text-xs">DON'T GIVE UP!</p>
+                                </div>
+
+                                {mistakes.length > 0 && (
+                                    <div className="w-full max-w-xs text-left bg-gray-900/50 p-4 rounded border border-red-900/50">
+                                        <h3 className="text-red-400 text-xs mb-2 border-b border-red-900 pb-1">MISTAKES</h3>
+                                        <div className="space-y-3 max-h-40 overflow-y-auto">
+                                            {mistakes.map((m, i) => (
+                                                <div key={i} className="text-[10px] border-b border-gray-800 pb-2">
+                                                    <div className="text-cyan-300 mb-1 flex items-center gap-2">
+                                                        <span className="text-red-500">Q:</span>
+                                                        <MathRenderer latex={m.latex} className="text-xs" />
+                                                    </div>
+                                                    <div className="text-yellow-300 pl-4 mb-1">
+                                                        Correct: ({m.ans[0]})({m.ans[1]})
+                                                    </div>
+                                                    <div className="text-gray-400 pl-4">
+                                                        Your: ({formatPoly(m.userAns[0], m.userAns[1])})({formatPoly(m.userAns[2], m.userAns[3])})
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <button 
+                                    onClick={() => setGameState(GAME_STATE.MENU)}
+                                    className="px-6 py-3 border-2 border-gray-500 hover:bg-gray-800 text-white w-full"
+                                >
+                                    RETURN TO MENU
+                                </button>
+                            </div>
+                        )}
+
+                        {gameState === GAME_STATE.VICTORY && (
+                            <div className="text-center space-y-6 mb-12 bg-black/80 p-8 rounded border border-cyan-900">
+                                <h2 className="text-2xl neon-pink font-bold animate-bounce">MISSION COMPLETE</h2>
+                                {isPerfect ? (
+                                    <div className="text-yellow-400 space-y-4">
+                                        <Trophy className="w-20 h-20 mx-auto drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]" />
+                                        <p className="text-2xl font-bold">SCORE: {score}</p>
+                                        <p className="text-lg">PERFECT CLEAR!</p>
+                                        <p className="text-xs text-gray-400">YOU ARE A MATH MASTER</p>
+                                    </div>
+                                ) : (
+                                    <div className="text-cyan-400 space-y-4">
+                                        <Zap className="w-20 h-20 mx-auto" />
+                                        <p className="text-2xl font-bold">SCORE: {score}</p>
+                                        <p className="text-lg">TARGET ELIMINATED</p>
+                                        <p className="text-xs text-gray-400">TRY FOR NO DAMAGE NEXT TIME</p>
+                                    </div>
+                                )}
+
+                                {mistakes.length > 0 && (
+                                    <div className="w-full max-w-xs text-left bg-gray-900/50 p-4 rounded border border-cyan-900/50 mt-4">
+                                        <h3 className="text-cyan-400 text-xs mb-2 border-b border-cyan-900 pb-1">REVIEW</h3>
+                                        <div className="space-y-3 max-h-40 overflow-y-auto">
+                                            {mistakes.map((m, i) => (
+                                                <div key={i} className="text-[10px] border-b border-gray-800 pb-2">
+                                                    <div className="text-cyan-300 mb-1 flex items-center gap-2">
+                                                        <span className="text-red-500">Q:</span>
+                                                        <MathRenderer latex={m.latex} className="text-xs" />
+                                                    </div>
+                                                    <div className="text-yellow-300 pl-4 mb-1">
+                                                        Correct: ({m.ans[0]})({m.ans[1]})
+                                                    </div>
+                                                    <div className="text-gray-400 pl-4">
+                                                        Your: ({formatPoly(m.userAns[0], m.userAns[1])})({formatPoly(m.userAns[2], m.userAns[3])})
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <button 
+                                    onClick={() => setGameState(GAME_STATE.MENU)}
+                                    className="px-6 py-3 border-2 border-cyan-500 hover:bg-cyan-900 text-white w-full mt-4"
+                                >
+                                    PLAY AGAIN
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
